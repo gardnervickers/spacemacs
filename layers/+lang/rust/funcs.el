@@ -48,6 +48,44 @@ using `cargo-process-run'."
   ""
   :type '(repeat (string)))
 
+(defconst rust-analyzer--notification-handlers
+  '(("rust-analyzer/publishDecorations" . (lambda (_w _p)))))
+
+(defconst rust-analyzer--action-handlers
+  '(("rust-analyzer.applySourceChange" .
+     (lambda (p) (rust-analyzer--apply-source-change-command p)))))
+
+(defun rust-analyzer--uri-filename (text-document)
+  (lsp--uri-to-path (gethash "uri" text-document)))
+
+(defun rust-analyzer--goto-lsp-loc (loc)
+  (-let (((&hash "line" "character") loc))
+    (goto-line (1+ line))
+    (move-to-column character)))
+
+(defun rust-analyzer--apply-text-document-edit (edit)
+  "Like lsp--apply-text-document-edit, but it allows nil version."
+  (let* ((ident (gethash "textDocument" edit))
+         (filename (rust-analyzer--uri-filename ident))
+         (version (gethash "version" ident)))
+    (with-current-buffer (find-file-noselect filename)
+      (when (or (not version) (= version (lsp--cur-file-version)))
+        (lsp--apply-text-edits (gethash "edits" edit))))))
+
+(defun rust-analyzer--apply-source-change (data)
+  ;; TODO fileSystemEdits
+  (seq-doseq (it (-> data (ht-get "workspaceEdit") (ht-get "documentChanges")))
+    (rust-analyzer--apply-text-document-edit it))
+  (-when-let (cursor-position (ht-get data "cursorPosition"))
+    (let ((filename (rust-analyzer--uri-filename (ht-get cursor-position "textDocument")))
+          (position (ht-get cursor-position "position")))
+      (find-file filename)
+      (rust-analyzer--goto-lsp-loc position))))
+
+(defun rust-analyzer--apply-source-change-command (p)
+  (let ((data (-> p (ht-get "arguments") (seq-first))))
+    (rust-analyzer--apply-source-change data)))
+
 (defun spacemacs//rust-initialize-rust-analyzer ()
   (use-package lsp-mode
     :defer t
@@ -60,13 +98,18 @@ using `cargo-process-run'."
       (lsp-register-client
        (make-lsp-client
         :new-connection (lsp-stdio-connection (lambda () rust-analyzer-command))
-        ;; :notification-handlers (ht<-alist rust-analyzer--notification-handlers)
-        ;;:action-handlers (ht<-alist rust-analyzer--action-handlers)
+        :notification-handlers (ht<-alist rust-analyzer--notification-handlers)
+        :action-handlers (ht<-alist rust-analyzer--action-handlers)
         :major-modes '(rust-mode rustic-mode)
         :priority 1
         :ignore-messages nil
         :server-id 'rust-analyzer
         ))
+      (with-eval-after-load 'company-lsp
+        ;; company-lsp provides a snippet handler for rust by default that adds () after function calls, which RA does better
+        (setq company-lsp--snippet-functions (assq-delete-all "rust" company-lsp--snippet-functions)))
+
+
       ))
   )
 
