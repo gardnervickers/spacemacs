@@ -32,10 +32,50 @@ using `cargo-process-run'."
              (shell-quote-argument input-file-name)
              (shell-quote-argument output-file-name)))))
 
+;; (use-package lsp-mode
+;;   :config
+;;   (lsp-register-client
+;;    (make-lsp-client :new-connection "ra_lsp_mode"
+;;                     :major-modes '(rust-mode rustic-mode)
+;;                     :priority -1
+;;                     :server-id 'rls
+;;                     :notification-handlers (lsp-ht ("window/progress" 'lsp-clients--rust-window-progress))
+;;                     :initialized-fn (lambda (workspace)
+;;                                       (with-lsp-workspace workspace
+;;                                         (lsp--set-configuration
+;;                                          (lsp-configuration-section ")
+(defcustom rust-analyzer-command '("ra_lsp_server")
+  ""
+  :type '(repeat (string)))
+
+(defun spacemacs//rust-initialize-rust-analyzer ()
+  (use-package lsp-mode
+    :defer t
+    :config
+    (progn
+      (require 'lsp-clients)
+      (require 'lsp)
+      (require 'dash)
+      (require 'ht)
+      (lsp-register-client
+       (make-lsp-client
+        :new-connection (lsp-stdio-connection (lambda () rust-analyzer-command))
+        ;; :notification-handlers (ht<-alist rust-analyzer--notification-handlers)
+        ;;:action-handlers (ht<-alist rust-analyzer--action-handlers)
+        :major-modes '(rust-mode rustic-mode)
+        :priority 1
+        :ignore-messages nil
+        :server-id 'rust-analyzer
+        ))
+      ))
+  )
+
 (defun spacemacs//rust-setup-lsp ()
   "Setup lsp backend"
   (if (configuration-layer/layer-used-p 'lsp)
-      (lsp)
+      (progn
+        (spacemacs//rust-initialize-rust-analyzer)
+        (lsp))
     (message "`lsp' layer is not installed, please add `lsp' layer to your dotfile."))
   (if (configuration-layer/layer-used-p 'dap)
       (progn
